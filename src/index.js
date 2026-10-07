@@ -5,48 +5,80 @@ import pkg from 'whatsapp-web.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { analyze } from './analyze.js';
+
 const { Client, RemoteAuth } = pkg;
 
-process.on('uncaughtException', err => {
-  console.error('UNCAUGHT_EXCEPTION', err);
-});
-
-process.on('unhandledRejection', reason => {
-  console.error('UNHANDLED_REJECTION', reason);
-});
-
-const PORT = Number(process.env.PORT || 8080);
-const DATA_DIR = process.env.DATA_DIR || '/data';
-
-const ANALYSIS_URL = process.env.ANALYSIS_URL || '';
-const ANALYSIS_API_KEY = process.env.ANALYSIS_API_KEY || '';
-
-const DB_PATH = path.join(DATA_DIR, 'ferrodynamics.json');
-const AUTH_PATH = '/tmp/whatsapp-session';
-const REMOTE_AUTH_DIR = path.join(DATA_DIR, 'remote-auth');
-
-const SUMMARY_PROMPT_PATH =
-  path.join(process.cwd(), 'prompts', 'summary.txt');
-
-await fs.mkdir(DATA_DIR, { recursive: true });
-await fs.mkdir(AUTH_PATH, { recursive: true });
-await fs.mkdir(REMOTE_AUTH_DIR, { recursive: true });
-
-const db = await JSONFilePreset(DB_PATH, {
-  messages: [],
-  state: {
-    whatsappReady: false,
-    lastQrAt: null
+process.on(
+  'uncaughtException',
+  err => {
+    console.error(
+      'UNCAUGHT_EXCEPTION',
+      err
+    );
   }
-});
+);
+
+process.on(
+  'unhandledRejection',
+  reason => {
+    console.error(
+      'UNHANDLED_REJECTION',
+      reason
+    );
+  }
+);
+
+const PORT =
+  Number(process.env.PORT || 8080);
+
+const DATA_DIR =
+  process.env.DATA_DIR || '/data';
+
+const DB_PATH =
+  path.join(
+    DATA_DIR,
+    'ferrodynamics.json'
+  );
+
+const AUTH_PATH =
+  '/tmp/whatsapp-session';
+
+const REMOTE_AUTH_DIR =
+  path.join(
+    DATA_DIR,
+    'remote-auth'
+  );
+
+await fs.mkdir(
+  DATA_DIR,
+  { recursive: true }
+);
+
+await fs.mkdir(
+  AUTH_PATH,
+  { recursive: true }
+);
+
+await fs.mkdir(
+  REMOTE_AUTH_DIR,
+  { recursive: true }
+);
+
+const db =
+  await JSONFilePreset(
+    DB_PATH,
+    {
+      messages: [],
+      state: {
+        whatsappReady: false,
+        lastQrAt: null
+      }
+    }
+  );
 
 let ready = false;
 let qrDataUrl = null;
-
-
-/* -------------------------------------------------
- * RemoteAuth persistent store
- * ------------------------------------------------- */
 
 class AzureFileStore {
   constructor(basePath) {
@@ -60,9 +92,13 @@ class AzureFileStore {
     );
   }
 
-  async sessionExists({ session }) {
+  async sessionExists({
+    session
+  }) {
     try {
-      await fs.access(this.filePath(session));
+      await fs.access(
+        this.filePath(session)
+      );
 
       console.log(
         `REMOTE_AUTH_EXISTS ${session}`
@@ -78,11 +114,14 @@ class AzureFileStore {
     }
   }
 
-  async save({ session }) {
-    const source = path.join(
-      AUTH_PATH,
-      `${session}.zip`
-    );
+  async save({
+    session
+  }) {
+    const source =
+      path.join(
+        AUTH_PATH,
+        `${session}.zip`
+      );
 
     const destination =
       this.filePath(session);
@@ -119,7 +158,9 @@ class AzureFileStore {
     );
   }
 
-  async delete({ session }) {
+  async delete({
+    session
+  }) {
     await fs.rm(
       this.filePath(session),
       { force: true }
@@ -136,47 +177,54 @@ const remoteStore =
     REMOTE_AUTH_DIR
   );
 
+const client =
+  new Client({
+    authStrategy:
+      new RemoteAuth({
+        clientId:
+          'ferrodynamics',
 
-/* -------------------------------------------------
- * WhatsApp
- * ------------------------------------------------- */
+        dataPath:
+          AUTH_PATH,
 
-const client = new Client({
-  authStrategy: new RemoteAuth({
-    clientId: 'ferrodynamics',
-    dataPath: AUTH_PATH,
-    store: remoteStore,
-    backupSyncIntervalMs: 60000
-  }),
+        store:
+          remoteStore,
 
-  puppeteer: {
-    headless: true,
+        backupSyncIntervalMs:
+          60000
+      }),
 
-    executablePath:
-      process.env.CHROME_PATH ||
-      '/usr/bin/chromium',
+    puppeteer: {
+      headless: true,
 
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage'
-    ]
+      executablePath:
+        process.env.CHROME_PATH ||
+        '/usr/bin/chromium',
+
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage'
+      ]
+    }
+  });
+
+client.on(
+  'qr',
+  async qr => {
+    qrDataUrl =
+      await QRCode.toDataURL(qr);
+
+    db.data.state.lastQrAt =
+      new Date().toISOString();
+
+    await db.write();
+
+    console.log(
+      'QR_READY'
+    );
   }
-});
-
-
-client.on('qr', async qr => {
-  qrDataUrl =
-    await QRCode.toDataURL(qr);
-
-  db.data.state.lastQrAt =
-    new Date().toISOString();
-
-  await db.write();
-
-  console.log('QR_READY');
-});
-
+);
 
 client.on(
   'loading_screen',
@@ -189,48 +237,59 @@ client.on(
   }
 );
 
+client.on(
+  'authenticated',
+  () => {
+    console.log(
+      'WHATSAPP_AUTHENTICATED'
+    );
+  }
+);
 
-client.on('authenticated', () => {
-  console.log(
-    'WHATSAPP_AUTHENTICATED'
-  );
-});
+client.on(
+  'auth_failure',
+  message => {
+    console.error(
+      'WHATSAPP_AUTH_FAILURE',
+      message
+    );
+  }
+);
 
+client.on(
+  'remote_session_saved',
+  () => {
+    console.log(
+      'REMOTE_SESSION_SAVED'
+    );
+  }
+);
 
-client.on('auth_failure', message => {
-  console.error(
-    'WHATSAPP_AUTH_FAILURE',
-    message
-  );
-});
+client.on(
+  'ready',
+  async () => {
+    ready = true;
+    qrDataUrl = null;
 
+    db.data.state.whatsappReady =
+      true;
 
-client.on('remote_session_saved', () => {
-  console.log(
-    'REMOTE_SESSION_SAVED'
-  );
-});
+    await db.write();
 
-
-client.on('ready', async () => {
-  ready = true;
-  qrDataUrl = null;
-
-  db.data.state.whatsappReady = true;
-  await db.write();
-
-  console.log(
-    'WHATSAPP_READY'
-  );
-});
-
+    console.log(
+      'WHATSAPP_READY'
+    );
+  }
+);
 
 client.on(
   'disconnected',
   async reason => {
     ready = false;
 
-    db.data.state.whatsappReady = false;
+    db.data.state.whatsappReady =
+      false;
+
     await db.write();
 
     console.error(
@@ -240,112 +299,81 @@ client.on(
   }
 );
 
-
-/* -------------------------------------------------
- * Analysis
- * ------------------------------------------------- */
-
-async function runSummary({
+async function sendLongMessage(
   groupId,
-  author,
-  args,
-  timestamp
-}) {
-  if (!ANALYSIS_URL) {
-    throw new Error(
-      'ANALYSIS_URL_NOT_CONFIGURED'
-    );
+  text
+) {
+  const value =
+    String(text || '').trim();
+
+  if (!value) {
+    return;
   }
 
-  const prompt =
-    await fs.readFile(
-      SUMMARY_PROMPT_PATH,
-      'utf8'
-    );
-
-  const parameters = {
-    command: '/summary',
-
-    args,
-
-    requestedFromGroup:
-      groupId,
-
-    requestedBy:
-      author,
-
-    requestedAt:
-      timestamp,
-
-    messages:
-      db.data.messages
-  };
-
-  console.log(
-    `SUMMARY_REQUEST group=${groupId} messages=${parameters.messages.length}`
-  );
-
-  const headers = {
-    'Content-Type': 'application/json'
-  };
-
-  if (ANALYSIS_API_KEY) {
-    headers.Authorization =
-      `Bearer ${ANALYSIS_API_KEY}`;
-  }
-
-  const response =
-    await fetch(
-      ANALYSIS_URL,
-      {
-        method: 'POST',
-        headers,
-
-        body: JSON.stringify({
-          prompt,
-          parameters
-        })
-      }
-    );
-
-  if (!response.ok) {
-    const errorText =
-      await response.text();
-
-    throw new Error(
-      `ANALYSIS_HTTP_${response.status}: ${errorText}`
-    );
-  }
-
-  const contentType =
-    response.headers.get(
-      'content-type'
-    ) || '';
+  const maxLength = 3500;
 
   if (
-    contentType.includes(
-      'application/json'
-    )
+    value.length <= maxLength
   ) {
-    const data =
-      await response.json();
-
-    return (
-      data.result ||
-      data.response ||
-      data.text ||
-      data.output ||
-      JSON.stringify(data)
+    await client.sendMessage(
+      groupId,
+      value
     );
+
+    return;
   }
 
-  return await response.text();
+  let position = 0;
+
+  while (
+    position < value.length
+  ) {
+    let end =
+      Math.min(
+        position + maxLength,
+        value.length
+      );
+
+    if (
+      end < value.length
+    ) {
+      const newline =
+        value.lastIndexOf(
+          '\n',
+          end
+        );
+
+      if (
+        newline > position
+      ) {
+        end = newline;
+      }
+    }
+
+    const part =
+      value
+        .slice(
+          position,
+          end
+        )
+        .trim();
+
+    if (part) {
+      await client.sendMessage(
+        groupId,
+        part
+      );
+    }
+
+    position = end;
+
+    while (
+      value.charAt(position) === '\n'
+    ) {
+      position += 1;
+    }
+  }
 }
-
-
-/* -------------------------------------------------
- * Commands
- * ------------------------------------------------- */
 
 async function handleCommand(
   msg,
@@ -354,90 +382,104 @@ async function handleCommand(
   const text =
     (msg.body || '').trim();
 
-  const firstSpace =
-    text.indexOf(' ');
+  const parts =
+    text.split(/\s+/);
 
-  let command;
-  let args;
-
-  if (firstSpace === -1) {
-    command =
-      text.toLowerCase();
-
-    args = '';
-  } else {
-    command =
-      text
-        .slice(0, firstSpace)
-        .toLowerCase();
-
-    args =
-      text
-        .slice(firstSpace + 1)
-        .trim();
+  if (
+    parts[0].toLowerCase() !==
+    '/bot'
+  ) {
+    return false;
   }
 
+  const command =
+    (parts[1] || '')
+      .toLowerCase();
 
-  if (command === '/help') {
+  const input =
+    parts
+      .slice(2)
+      .join(' ')
+      .trim();
+
+  if (
+    !command ||
+    command === 'help'
+  ) {
     await client.sendMessage(
       groupId,
       [
         'FerroDynamics Bot',
         '',
-        '/help',
-        '/status',
-        '/summary [cerere]'
+        '/bot help',
+        '/bot status',
+        '/bot summary <cerere>'
       ].join('\n')
     );
 
     return true;
   }
 
-
-  if (command === '/status') {
-    await client.sendMessage(
-      groupId,
+  if (
+    command === 'status'
+  ) {
+    const status =
       ready
         ? 'Bot online. WhatsApp ready.'
-        : 'Bot online. WhatsApp not ready.'
+        : 'Bot online. WhatsApp not ready.';
+
+    await client.sendMessage(
+      groupId,
+      status
     );
 
     return true;
   }
 
-
-  if (command === '/summary') {
+  if (
+    command === 'summary'
+  ) {
     try {
       await client.sendMessage(
         groupId,
         'Analizez...'
       );
 
-      const result =
-        await runSummary({
+      const parameters = {
+        input,
+
+        requestedFromGroup:
           groupId,
 
-          author:
-            msg.author ||
-            msg.from,
+        requestedBy:
+          msg.author ||
+          msg.from,
 
-          args,
+        requestedAt:
+          msg.timestamp,
 
-          timestamp:
-            msg.timestamp
-        });
+        messages:
+          db.data.messages
+      };
 
+      console.log(
+        `SUMMARY_REQUEST group=${groupId} messages=${parameters.messages.length}`
+      );
 
-      await client.sendMessage(
+      const result =
+        await analyze(
+          'summary',
+          parameters
+        );
+
+      await sendLongMessage(
         groupId,
         result
       );
 
-
       console.log(
         `SUMMARY_SENT group=${groupId}`
       );
-
     } catch (err) {
       console.error(
         'SUMMARY_FAILED',
@@ -453,172 +495,173 @@ async function handleCommand(
     return true;
   }
 
+  await client.sendMessage(
+    groupId,
+    'Comanda necunoscuta. Foloseste /bot help.'
+  );
 
-  return false;
+  return true;
 }
 
+client.on(
+  'message',
+  async msg => {
+    try {
+      const groupId =
+        msg.from;
 
-/* -------------------------------------------------
- * Messages
- * ------------------------------------------------- */
-
-client.on('message', async msg => {
-  try {
-    const groupId =
-      msg.from;
-
-    /*
-     * Ignore private conversations.
-     */
-
-    if (
-      !groupId ||
-      !groupId.endsWith('@g.us')
-    ) {
-      return;
-    }
-
-
-    const text =
-      (msg.body || '').trim();
-
-
-    /*
-     * Commands are executed but are not added
-     * to the analysis archive.
-     */
-
-    if (text.startsWith('/')) {
-      const handled =
-        await handleCommand(
-          msg,
-          groupId
-        );
-
-      if (handled) {
+      if (
+        !groupId ||
+        !groupId.endsWith(
+          '@g.us'
+        )
+      ) {
         return;
       }
-    }
 
+      const text =
+        (msg.body || '').trim();
 
-    /*
-     * Normal group message.
-     */
+      const lowerText =
+        text.toLowerCase();
 
-    const id =
-      msg.id?._serialized ||
-      msg.id?.id ||
-      `${msg.from}-${msg.timestamp}-${msg.author || 'unknown'}`;
+      if (
+        lowerText === '/bot' ||
+        lowerText.startsWith(
+          '/bot '
+        )
+      ) {
+        const handled =
+          await handleCommand(
+            msg,
+            groupId
+          );
 
+        if (handled) {
+          return;
+        }
+      }
 
-    console.log(
-      `MESSAGE_RECEIVED group=${groupId} id=${id}`
-    );
+      const id =
+        msg.id?._serialized ||
+        msg.id?.id ||
+        `${msg.from}-${msg.timestamp}-${msg.author || 'unknown'}`;
 
-
-    const exists =
-      db.data.messages.some(
-        message =>
-          message.id === id
-      );
-
-
-    if (exists) {
       console.log(
-        `MESSAGE_DUPLICATE ${id}`
+        `MESSAGE_RECEIVED group=${groupId} id=${id}`
       );
 
-      return;
+      const exists =
+        db.data.messages.some(
+          message =>
+            message.id === id
+        );
+
+      if (exists) {
+        console.log(
+          `MESSAGE_DUPLICATE ${id}`
+        );
+
+        return;
+      }
+
+      db.data.messages.push({
+        id,
+
+        groupId,
+
+        groupName:
+          null,
+
+        timestamp:
+          msg.timestamp,
+
+        author:
+          msg.author ||
+          msg.from,
+
+        fromMe:
+          Boolean(
+            msg.fromMe
+          ),
+
+        type:
+          msg.type || null,
+
+        text:
+          msg.body || '',
+
+        hasMedia:
+          Boolean(
+            msg.hasMedia
+          ),
+
+        hasQuotedMsg:
+          Boolean(
+            msg.hasQuotedMsg
+          ),
+
+        isForwarded:
+          Boolean(
+            msg.isForwarded
+          ),
+
+        savedAt:
+          new Date()
+            .toISOString()
+      });
+
+      await db.write();
+
+      console.log(
+        `SAVED ${id} ${groupId}`
+      );
+    } catch (err) {
+      console.error(
+        'MESSAGE_PROCESS_FAILED',
+        err
+      );
     }
-
-
-    db.data.messages.push({
-      id,
-
-      groupId,
-
-      groupName: null,
-
-      timestamp:
-        msg.timestamp,
-
-      author:
-        msg.author ||
-        msg.from,
-
-      fromMe:
-        Boolean(msg.fromMe),
-
-      type:
-        msg.type || null,
-
-      text:
-        msg.body || '',
-
-      hasMedia:
-        Boolean(msg.hasMedia),
-
-      hasQuotedMsg:
-        Boolean(msg.hasQuotedMsg),
-
-      isForwarded:
-        Boolean(msg.isForwarded),
-
-      savedAt:
-        new Date().toISOString()
-    });
-
-
-    await db.write();
-
-
-    console.log(
-      `SAVED ${id} ${groupId}`
-    );
-
-  } catch (err) {
-    console.error(
-      'MESSAGE_PROCESS_FAILED',
-      err
-    );
   }
-});
-
-
-/* -------------------------------------------------
- * HTTP
- * ------------------------------------------------- */
+);
 
 const app =
   express();
 
+app.get(
+  '/',
+  (req, res) => {
+    res.json({
+      service:
+        'ferrodynamics-whatsapp-bot',
 
-app.get('/', (req, res) => {
-  res.json({
-    service:
-      'ferrodynamics-whatsapp-bot',
-
-    ok: true
-  });
-});
-
+      ok:
+        true
+    });
+  }
+);
 
 app.get(
   '/health',
   (req, res) => {
     res.json({
-      ok: true,
-      whatsappReady: ready,
-      analysisConfigured:
-        Boolean(ANALYSIS_URL)
+      ok:
+        true,
+
+      whatsappReady:
+        ready,
+
+      modelConfigured:
+        Boolean(
+          process.env.MODEL_URL
+        )
     });
   }
 );
 
-
 app.get(
   '/qr',
-  async (req, res) => {
+  (req, res) => {
     if (ready) {
       return res
         .status(409)
@@ -652,14 +695,16 @@ app.get(
   }
 );
 
-
 app.get(
   '/stats',
   (req, res) => {
     const groups =
       new Set(
         db.data.messages
-          .map(message => message.groupId)
+          .map(
+            message =>
+              message.groupId
+          )
           .filter(Boolean)
       );
 
@@ -673,12 +718,13 @@ app.get(
       whatsappReady:
         ready,
 
-      analysisConfigured:
-        Boolean(ANALYSIS_URL)
+      modelConfigured:
+        Boolean(
+          process.env.MODEL_URL
+        )
     });
   }
 );
-
 
 app.listen(
   PORT,
@@ -689,11 +735,6 @@ app.listen(
     );
   }
 );
-
-
-/* -------------------------------------------------
- * Start
- * ------------------------------------------------- */
 
 client
   .initialize()
