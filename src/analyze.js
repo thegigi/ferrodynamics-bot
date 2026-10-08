@@ -1,159 +1,123 @@
 import fs from 'node:fs/promises';
-import path from 'node:path';
+import crypto from 'node:crypto';
 
-const PROMPTS_DIR =
-  path.join(process.cwd(), 'prompts');
+const WORKIQ_URL = 'https://workiq.svc.cloud.microsoft/a2a/';
 
-const MODEL_URL =
-  process.env.MODEL_URL || '';
+function deduplicateAnswer(text) {
+  const value = text.trim();
 
-const MODEL_API_KEY =
-  process.env.MODEL_API_KEY || '';
-
-const MODEL_NAME =
-  process.env.MODEL_NAME || '';
-
-async function loadPrompt(command) {
-  if (command !== 'summary') {
-    throw new Error(
-      'UNSUPPORTED_COMMAND'
-    );
+  if (!value) {
+    return value;
   }
 
-  const filePath =
-    path.join(
-      PROMPTS_DIR,
-      'summary.txt'
-    );
+  const length = value.length;
 
-  const prompt =
-    await fs.readFile(
-      filePath,
-      'utf8'
-    );
+  for (let split = Math.floor(length / 2) - 5;
+       split <= Math.floor(length / 2) + 5;
+       split += 1) {
 
-  if (!prompt.trim()) {
-    throw new Error(
-      'EMPTY_PROMPT'
-    );
+    if (split <= 0 || split >= length) {
+      continue;
+    }
+
+    const first =
+      value.slice(0, split).trim();
+
+    const second =
+      value.slice(split).trim();
+
+    if (first === second) {
+      return first;
+    }
   }
 
-  return prompt;
+  return value;
 }
 
-export async function analyze(
-  command,
-  parameters
-) {
-  if (!command) {
-    throw new Error(
-      'MISSING_COMMAND'
-    );
+export async function analyze(command, parameters) {
+  const token = process.env.WORKIQ_ACCESS_TOKEN;
+
+  if (!token) {
+    throw new Error('WORKIQ_ACCESS_TOKEN missing');
   }
 
-  if (
-    !parameters ||
-    typeof parameters !== 'object'
-  ) {
-    throw new Error(
-      'INVALID_PARAMETERS'
-    );
+  if (command !== 'summary') {
+    throw new Error(`Unsupported command: ${command}`);
   }
 
-  if (!MODEL_URL) {
-    throw new Error(
-      'MODEL_URL_NOT_CONFIGURED'
-    );
-  }
-
-  const prompt =
-    await loadPrompt(command);
-
-  const payload = {
-    model: MODEL_NAME || undefined,
-
-    prompt,
-
-    parameters
-  };
-
-  const headers = {
-    'Content-Type':
-      'application/json'
-  };
-
-  if (MODEL_API_KEY) {
-    headers.Authorization =
-      `Bearer ${MODEL_API_KEY}`;
-  }
-
-  console.log(
-    `AI_REQUEST command=${command}`
+  const prompt = await fs.readFile(
+    new URL('../prompts/summary.txt', import.meta.url),
+    'utf8'
   );
 
-  const response =
-    await fetch(
-      MODEL_URL,
-      {
-        method: 'POST',
+  const text = [
+    prompt.trim(),
+    '',
+    'PARAMETERS:',
+    parameters?.input || '',
+    '',
+    'MESSAGES:',
+    JSON.stringify(parameters?.messages || [])
+  ].join('\n');
 
-        headers,
-
-        body:
-          JSON.stringify(payload)
+  const body = {
+    jsonrpc: '2.0',
+    id: crypto.randomUUID(),
+    method: 'SendMessage',
+    params: {
+      message: {
+        role: 'ROLE_USER',
+        messageId: crypto.randomUUID(),
+        parts: [
+          { text }
+        ],
+        metadata: {
+          Location: {
+            timeZoneOffset: 180,
+            timeZone: 'Europe/Bucharest'
+          }
+        }
       }
-    );
+    }
+  };
+
+  const response = await fetch(WORKIQ_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'A2A-Version': '1.0'
+    },
+    body: JSON.stringify(body)
+  });
 
   if (!response.ok) {
-    const body =
-      await response.text();
+    throw new Error(`Work IQ HTTP ${response.status}`);
+  }
 
-    console.error(
-      `AI_HTTP_ERROR status=${response.status}`
-    );
+  const data = await response.json();
 
+  if (data.error) {
     throw new Error(
-      `MODEL_HTTP_${response.status}: ${body}`
+      `Work IQ: ${data.error.message || JSON.stringify(data.error)}`
     );
   }
 
-  const contentType =
-    response.headers.get(
-      'content-type'
-    ) || '';
+  const task = data.result?.task;
 
-  let result;
-
-  if (
-    contentType.includes(
-      'application/json'
-    )
-  ) {
-    const data =
-      await response.json();
-
-    result =
-      data.result ||
-      data.response ||
-      data.output ||
-      data.text;
-  } else {
-    result =
-      await response.text();
+  if (!task) {
+    throw new Error('Work IQ returned no task');
   }
 
-  if (
-    typeof result !== 'string' ||
-    !result.trim()
-  ) {
-    throw new Error(
-      'EMPTY_MODEL_RESPONSE'
-    );
+  const answer = task.artifacts
+    ?.find(a => a.name === 'Answer')
+    ?.parts
+    ?.find(p => typeof p.text === 'string')
+    ?.text;
+
+  if (!answer) {
+    throw new Error('Work IQ returned no Answer');
   }
 
-  console.log(
-    `AI_COMPLETE command=${command}`
-  );
-
-  return result.trim();
+  return deduplicateAnswer(answer);
 }
