@@ -92,9 +92,12 @@ export async function analyze(command, parameters) {
   });
 
   if (!response.ok) {
-    throw new Error(`Work IQ HTTP ${response.status}`);
-  }
+     const errorBody = await response.text();
+     console.error(`WORKIQ_HTTP_ERROR status=${response.status} body=${errorBody}`
+  );
 
+  throw new Error(`Work IQ HTTP ${response.status}`);
+  }
   const data = await response.json();
 
   if (data.error) {
