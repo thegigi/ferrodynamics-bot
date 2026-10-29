@@ -265,20 +265,22 @@ client.on(
   }
 );
 
+let healthCheckFailures = 0;
+
+const HEALTH_CHECK_INTERVAL_MS = 60_000;
+const MAX_HEALTH_CHECK_FAILURES = 3;
+
 client.on(
   'ready',
   async () => {
+    healthCheckFailures = 0;
     ready = true;
     qrDataUrl = null;
 
-    db.data.state.whatsappReady =
-      true;
-
+    db.data.state.whatsappReady = true;
     await db.write();
 
-    console.log(
-      'WHATSAPP_READY'
-    );
+    console.log('WHATSAPP_READY');
   }
 );
 
@@ -296,8 +298,49 @@ client.on(
       'WHATSAPP_DISCONNECTED',
       reason
     );
+
+    console.error(
+      'WHATSAPP_SELF_HEAL_RESTART'
+    );
+
+    process.exit(1);
   }
 );
+
+setInterval(async () => {
+  if (!ready) {
+    return;
+  }
+
+  try {
+    const state = await client.getState();
+
+    if (!state) {
+      throw new Error('WhatsApp state unavailable');
+    }
+
+    healthCheckFailures = 0;
+  } catch (err) {
+    healthCheckFailures++;
+
+    console.error(
+      `WHATSAPP_HEALTH_FAILED count=${healthCheckFailures}`,
+      err?.message || err
+    );
+
+    if (
+      healthCheckFailures >=
+      MAX_HEALTH_CHECK_FAILURES
+    ) {
+      console.error(
+        'WHATSAPP_SELF_HEAL_RESTART'
+      );
+
+      process.exit(1);
+    }
+  }
+}, HEALTH_CHECK_INTERVAL_MS);
+
 
 async function sendLongMessage(
   groupId,
