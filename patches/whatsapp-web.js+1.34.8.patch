@@ -1,0 +1,13 @@
+diff --git a/node_modules/whatsapp-web.js/src/Client.js b/node_modules/whatsapp-web.js/src/Client.js
+index 62de539..7c74efd 100644
+--- a/node_modules/whatsapp-web.js/src/Client.js
++++ b/node_modules/whatsapp-web.js/src/Client.js
+@@ -1184,7 +1184,7 @@ class Client extends EventEmitter {
+             }
+ 
+             Msg.on('add', (msg) => {
+-                if (!msg.isNewMsg) return;
++                if (msg.isNewMsg === false) return;
+ 
+                 if (msg.type !== 'ciphertext') {
+                     window.onAddMessageEvent(
