@@ -276,8 +276,11 @@ client.on(
 
     await db.write();
 
+    const wwebVersion =
+      await client.getWWebVersion();
+
     console.log(
-      'WHATSAPP_READY'
+      `WHATSAPP_READY webVersion=${wwebVersion}`
     );
   }
 );
