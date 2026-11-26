@@ -179,6 +179,18 @@ const remoteStore =
 
 const client =
   new Client({
+    webVersion:
+      '2.3000.1053021455-alpha',
+
+    webVersionCache: {
+      type: 'remote',
+
+      remotePath:
+        'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1053021455-alpha.html',
+
+      strict: true
+    },
+
     authStrategy:
       new RemoteAuth({
         clientId:
