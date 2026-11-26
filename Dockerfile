@@ -9,6 +9,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
+COPY scripts ./scripts
+RUN node scripts/patch-whatsapp-web.cjs
+
 COPY src ./src
 COPY prompts ./prompts
 
