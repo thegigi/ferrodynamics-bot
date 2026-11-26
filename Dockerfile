@@ -9,6 +9,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
+RUN node -e "const fs=require('fs'); const p='node_modules/whatsapp-web.js/src/authStrategies/RemoteAuth.js'; let s=fs.readFileSync(p,'utf8'); const old='        var self = this;\\n        this.backupSync = setInterval'; const replacement='        clearInterval(this.backupSync);\\n        var self = this;\\n        this.backupSync = setInterval'; if(!s.includes(old)) throw new Error('RemoteAuth patch target not found'); s=s.replace(old,replacement); fs.writeFileSync(p,s);"
+
 COPY src ./src
 COPY prompts ./prompts
 
