@@ -137,6 +137,21 @@ clientSource = replaceExact(
                 );
             },
         );
+        await exposeFunctionIfAbsent(
+            this.pupPage,
+            'onFerroMsgAddEvent',
+            (details) => {
+                console.log(
+                    '[WWEBJS_MSG_ADD]',
+                    'type=' + (details?.type ?? 'unknown'),
+                    'isNewMsg=' +
+                        String(details?.isNewMsg),
+                    'fromMe=' +
+                        String(details?.fromMe),
+                    'id=' + (details?.id ?? 'unknown')
+                );
+            },
+        );
 
         await exposeFunctionIfAbsent(`,
   'Listener-bound logging patch'
@@ -146,6 +161,36 @@ fs.writeFileSync(
   clientPath,
   clientSource
 );
+
+
+/*
+ * Raw diagnostic: prove whether WhatsApp Web actually fires
+ * WAWebCollections.Msg "add".
+ */
+clientSource = replaceExact(
+  clientSource,
+`            Msg.on('add', (msg) => {
+                if (!msg.isNewMsg) return;`,
+`            Msg.on('add', (msg) => {
+                window.onFerroMsgAddEvent?.({
+                    type: msg.type || null,
+                    isNewMsg: msg.isNewMsg,
+                    fromMe: msg.id?.fromMe,
+                    id:
+                        msg.id?._serialized ||
+                        msg.id?.id ||
+                        null,
+                });
+
+                if (!msg.isNewMsg) return;`,
+  'Raw Msg add diagnostic'
+);
+
+fs.writeFileSync(
+  clientPath,
+  clientSource
+);
+
 
 /*
  * Prevent afterAuthReady() from creating multiple concurrent
